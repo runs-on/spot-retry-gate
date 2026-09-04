@@ -1,0 +1,143 @@
+const assert = require("node:assert/strict");
+const test = require("node:test");
+
+const {
+  PAGE_SIZE,
+  SPOT_INTERRUPTION_ANNOTATION_TITLE,
+  detectSpotInterruption,
+  parseJobResults,
+} = require("../.github/actions/detect/src/index.js");
+
+function response(body, status = 200) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    statusText: status === 200 ? "OK" : "Forbidden",
+    async json() {
+      return body;
+    },
+  };
+}
+
+function detectorOptions(fetchImpl) {
+  return {
+    fetchImpl,
+    apiUrl: "https://api.github.test",
+    token: "token",
+    repository: "runs-on/example",
+    runId: "123",
+    runAttempt: "2",
+  };
+}
+
+test("accepts successful dependency results", () => {
+  assert.deepEqual(
+    parseJobResults(JSON.stringify({ test: { result: "success", outputs: {} } })),
+    { dependenciesSucceeded: true },
+  );
+});
+
+test("treats every non-success dependency result as a failure", () => {
+  for (const result of ["failure", "cancelled", "skipped"]) {
+    assert.deepEqual(parseJobResults(JSON.stringify({ test: { result } })), {
+      dependenciesSucceeded: false,
+    });
+  }
+  assert.deepEqual(parseJobResults("{}"), { dependenciesSucceeded: false });
+});
+
+test("rejects malformed dependency results", () => {
+  for (const value of ["not-json", "[]", "null", '{"test":null}', '{"test":{"result":"neutral"}}']) {
+    assert.throws(() => parseJobResults(value));
+  }
+});
+
+test("returns false for an ordinary failed job", async () => {
+  const fetchImpl = async (url) => {
+    if (url.pathname.endsWith("/jobs")) {
+      return response({
+        jobs: [
+          {
+            id: 1,
+            conclusion: "failure",
+            check_run_url: "https://api.github.test/repos/runs-on/example/check-runs/10",
+          },
+        ],
+      });
+    }
+    return response([]);
+  };
+
+  assert.equal(await detectSpotInterruption(detectorOptions(fetchImpl)), false);
+});
+
+test("finds a Spot interruption among mixed failures", async () => {
+  const fetchImpl = async (url) => {
+    if (url.pathname.endsWith("/jobs")) {
+      return response({
+        jobs: [
+          {
+            id: 1,
+            conclusion: "failure",
+            check_run_url: "https://api.github.test/repos/runs-on/example/check-runs/10",
+          },
+          {
+            id: 2,
+            conclusion: "failure",
+            check_run_url: "https://api.github.test/repos/runs-on/example/check-runs/20",
+          },
+        ],
+      });
+    }
+    if (url.pathname.endsWith("/10/annotations")) {
+      return response([{ title: "A normal failure" }]);
+    }
+    return response([{ title: SPOT_INTERRUPTION_ANNOTATION_TITLE }]);
+  };
+
+  assert.equal(await detectSpotInterruption(detectorOptions(fetchImpl)), true);
+});
+
+test("paginates jobs and annotations", async () => {
+  const requests = [];
+  const fetchImpl = async (url) => {
+    requests.push(`${url.pathname}?${url.searchParams}`);
+    const page = Number(url.searchParams.get("page"));
+    if (url.pathname.endsWith("/jobs")) {
+      if (page === 1) {
+        return response({
+          jobs: Array.from({ length: PAGE_SIZE }, (_, index) => ({
+            id: index,
+            conclusion: "success",
+            check_run_url: null,
+          })),
+        });
+      }
+      return response({
+        jobs: [
+          {
+            id: 101,
+            conclusion: "failure",
+            check_run_url: "https://api.github.test/repos/runs-on/example/check-runs/30",
+          },
+        ],
+      });
+    }
+    if (page === 1) {
+      return response(Array.from({ length: PAGE_SIZE }, () => ({ title: "Other" })));
+    }
+    return response([{ title: SPOT_INTERRUPTION_ANNOTATION_TITLE }]);
+  };
+
+  assert.equal(await detectSpotInterruption(detectorOptions(fetchImpl)), true);
+  assert.equal(requests.filter((request) => request.includes("/jobs?")).length, 2);
+  assert.equal(requests.filter((request) => request.includes("/annotations?")).length, 2);
+});
+
+test("fails closed when the GitHub API fails", async () => {
+  const fetchImpl = async () => response({}, 403);
+  await assert.rejects(
+    detectSpotInterruption(detectorOptions(fetchImpl)),
+    /GitHub API request failed.*403 Forbidden/,
+  );
+});
