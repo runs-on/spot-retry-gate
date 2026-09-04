@@ -11,6 +11,12 @@ function validateCheckName(name) {
   }
 }
 
+function resolveCheckName(name) {
+  const resolved = name || "pass";
+  validateCheckName(resolved);
+  return resolved;
+}
+
 function parseJobResults(raw) {
   let parsed;
   try {
@@ -138,6 +144,22 @@ async function detectSpotInterruption({
   return false;
 }
 
+async function evaluateGate({ jobResults, runAttempt, detectInterruption }) {
+  const { dependenciesSucceeded } = parseJobResults(jobResults);
+  if (!/^\d+$/.test(runAttempt) || Number(runAttempt) < 1) {
+    throw new Error("run_attempt must be a positive integer");
+  }
+
+  if (dependenciesSucceeded || runAttempt !== "1") {
+    return { dependenciesSucceeded, spotInterrupted: false };
+  }
+
+  return {
+    dependenciesSucceeded,
+    spotInterrupted: await detectInterruption(),
+  };
+}
+
 function getInput(name) {
   const value = process.env[`INPUT_${name.toUpperCase()}`];
   if (!value) {
@@ -161,18 +183,21 @@ function annotateError(message) {
 
 async function main() {
   try {
-    validateCheckName(getInput("CHECK_NAME"));
-    const { dependenciesSucceeded } = parseJobResults(getInput("JOB_RESULTS"));
-    setOutput("dependencies_succeeded", String(dependenciesSucceeded));
-
-    const spotInterrupted = await detectSpotInterruption({
-      fetchImpl: fetch,
-      apiUrl: getInput("API_URL"),
-      token: getInput("GITHUB_TOKEN"),
-      repository: getInput("REPOSITORY"),
-      runId: getInput("RUN_ID"),
+    resolveCheckName(process.env.INPUT_CHECK_NAME);
+    const { dependenciesSucceeded, spotInterrupted } = await evaluateGate({
+      jobResults: getInput("JOB_RESULTS"),
       runAttempt: getInput("RUN_ATTEMPT"),
+      detectInterruption: () =>
+        detectSpotInterruption({
+          fetchImpl: fetch,
+          apiUrl: getInput("API_URL"),
+          token: getInput("GITHUB_TOKEN"),
+          repository: getInput("REPOSITORY"),
+          runId: getInput("RUN_ID"),
+          runAttempt: getInput("RUN_ATTEMPT"),
+        }),
     });
+    setOutput("dependencies_succeeded", String(dependenciesSucceeded));
     setOutput("spot_interrupted", String(spotInterrupted));
   } catch (error) {
     annotateError(error instanceof Error ? error.message : String(error));
@@ -188,7 +213,9 @@ module.exports = {
   PAGE_SIZE,
   SPOT_INTERRUPTION_ANNOTATION_TITLE,
   detectSpotInterruption,
+  evaluateGate,
   listAll,
   parseJobResults,
+  resolveCheckName,
   validateCheckName,
 };

@@ -6,7 +6,9 @@ const {
   PAGE_SIZE,
   SPOT_INTERRUPTION_ANNOTATION_TITLE,
   detectSpotInterruption,
+  evaluateGate,
   parseJobResults,
+  resolveCheckName,
   validateCheckName,
 } = require("../.github/actions/detect/src/index.js");
 
@@ -62,9 +64,70 @@ test("rejects check names reserved by the reusable workflow", () => {
   assert.doesNotThrow(() => validateCheckName("ready"));
 });
 
+test("treats an empty check name as the default", () => {
+  assert.equal(resolveCheckName(""), "pass");
+  assert.equal(resolveCheckName(undefined), "pass");
+});
+
 test("passes check_name from the reusable workflow to validation", () => {
   const workflow = fs.readFileSync(".github/workflows/merge-queue.yml", "utf8");
   assert.match(workflow, /check_name: \$\{\{ inputs\.check_name \}\}/);
+});
+
+test("skips annotation lookup when every dependency succeeded", async () => {
+  let detectionCalls = 0;
+  const result = await evaluateGate({
+    jobResults: JSON.stringify({ test: { result: "success" } }),
+    runAttempt: "1",
+    detectInterruption: async () => {
+      detectionCalls += 1;
+      throw new Error("must not query GitHub");
+    },
+  });
+
+  assert.deepEqual(result, { dependenciesSucceeded: true, spotInterrupted: false });
+  assert.equal(detectionCalls, 0);
+});
+
+test("does not report an interruption after the first attempt", async () => {
+  let detectionCalls = 0;
+  const result = await evaluateGate({
+    jobResults: JSON.stringify({ test: { result: "failure" } }),
+    runAttempt: "2",
+    detectInterruption: async () => {
+      detectionCalls += 1;
+      return true;
+    },
+  });
+
+  assert.deepEqual(result, { dependenciesSucceeded: false, spotInterrupted: false });
+  assert.equal(detectionCalls, 0);
+});
+
+test("looks for an interruption only for failed dependencies on attempt one", async () => {
+  let detectionCalls = 0;
+  const result = await evaluateGate({
+    jobResults: JSON.stringify({ test: { result: "failure" } }),
+    runAttempt: "1",
+    detectInterruption: async () => {
+      detectionCalls += 1;
+      return true;
+    },
+  });
+
+  assert.deepEqual(result, { dependenciesSucceeded: false, spotInterrupted: true });
+  assert.equal(detectionCalls, 1);
+});
+
+test("rejects an invalid run attempt", async () => {
+  await assert.rejects(
+    evaluateGate({
+      jobResults: JSON.stringify({ test: { result: "failure" } }),
+      runAttempt: "unknown",
+      detectInterruption: async () => false,
+    }),
+    /run_attempt must be a positive integer/,
+  );
 });
 
 test("returns false for an ordinary failed job", async () => {
@@ -155,19 +218,4 @@ test("fails closed when the GitHub API fails", async () => {
     detectSpotInterruption(detectorOptions(fetchImpl)),
     /GitHub API request failed.*403 Forbidden/,
   );
-});
-
-test("preserves a GitHub Enterprise API path prefix", async () => {
-  const requestedUrls = [];
-  const fetchImpl = async (url) => {
-    requestedUrls.push(url.toString());
-    return response({ jobs: [] });
-  };
-
-  await detectSpotInterruption({
-    ...detectorOptions(fetchImpl),
-    apiUrl: "https://ghe.example/api/v3",
-  });
-
-  assert.match(requestedUrls[0], /^https:\/\/ghe\.example\/api\/v3\/repos\//);
 });

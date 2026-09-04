@@ -8,6 +8,9 @@ rerun of failed jobs. This reusable workflow publishes a different successful
 check during that first interrupted attempt. The required check stays pending
 until the retry publishes the real aggregate result.
 
+This workflow supports GitHub.com. GitHub Enterprise Server does not support
+the `$/` self-repository action reference used by reusable workflows.
+
 ## Usage
 
 Trigger CI for pull requests and merge groups, then add one gate job after the
@@ -46,13 +49,17 @@ The gate publishes these checks:
 | Attempt | Check | Conclusion |
 | --- | --- | --- |
 | Normal completed attempt | `merge-gate / pass` | Aggregate result |
-| Attempt with a Spot interruption | `merge-gate / interrupted` | Success |
+| First attempt with an annotated Spot interruption | `merge-gate / interrupted` | Success |
 
 The successful `interrupted` check does not satisfy the required `pass` check.
 The merge queue waits while RunsOn reruns the failed jobs. GitHub carries
 successful jobs into the new attempt without executing them again.
 
-Every job that contributes to the aggregate result must appear in `needs`.
+Every job that contributes to the aggregate result must appear in `needs`. Use
+one non-matrix gate job. If every dependency succeeds, the gate publishes the
+normal check without querying the GitHub API. Attempts after the first also
+publish the normal aggregate result because RunsOn does not retry them again.
+
 Keep the workflow running until the gate finishes: RunsOn waits for the failed
 attempt to complete before requesting the retry. Set the merge queue's status
 check timeout long enough to cover that delay and the retry.
@@ -87,7 +94,8 @@ normal check when:
 
 - any dependency fails, is cancelled, or is skipped;
 - `job_results` is empty or malformed; or
-- GitHub's jobs or check-annotations API cannot be read.
+- GitHub's jobs or check-annotations API cannot be read while a dependency has
+  failed on the first attempt.
 
 When interrupted and ordinary failures occur together, the interrupted attempt
 keeps the required check pending. Any ordinary failure that persists in the
@@ -95,6 +103,14 @@ retry then fails the normal check.
 
 The workflow needs only `actions: read` and `checks: read`. It does not accept
 secrets or write through the GitHub API.
+
+### Forced runner termination
+
+The gate recognizes only interruptions carrying the exact annotation. If the
+runner is terminated before its post-job hook reports that annotation, the gate
+fails the normal check. RunsOn may still have enough durable instance evidence
+to retry the job. The gate cannot read that evidence with GitHub-only
+permissions.
 
 ## License
 
