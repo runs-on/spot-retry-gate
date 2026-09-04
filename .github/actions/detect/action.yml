@@ -17,6 +17,9 @@ inputs:
   job_results:
     description: JSON object produced by toJSON(needs)
     required: true
+  check_name:
+    description: Normal check name suffix
+    required: true
   api_url:
     description: GitHub API base URL
     required: false

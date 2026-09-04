@@ -3,6 +3,13 @@ const fs = require("node:fs");
 const SPOT_INTERRUPTION_ANNOTATION_TITLE = "EC2 Spot interruption";
 const PAGE_SIZE = 100;
 const VALID_JOB_RESULTS = new Set(["success", "failure", "cancelled", "skipped"]);
+const RESERVED_CHECK_NAMES = new Set(["detect spot interruption", "interrupted"]);
+
+function validateCheckName(name) {
+  if (RESERVED_CHECK_NAMES.has(name.trim().toLowerCase())) {
+    throw new Error(`check_name cannot be ${JSON.stringify(name)}`);
+  }
+}
 
 function parseJobResults(raw) {
   let parsed;
@@ -36,7 +43,7 @@ function parseJobResults(raw) {
 }
 
 async function githubApi(fetchImpl, apiUrl, token, pathname, page) {
-  const url = new URL(pathname, `${apiUrl.replace(/\/$/, "")}/`);
+  const url = new URL(pathname.replace(/^\/+/, ""), `${apiUrl.replace(/\/+$/, "")}/`);
   url.searchParams.set("per_page", String(PAGE_SIZE));
   url.searchParams.set("page", String(page));
 
@@ -154,6 +161,7 @@ function annotateError(message) {
 
 async function main() {
   try {
+    validateCheckName(getInput("CHECK_NAME"));
     const { dependenciesSucceeded } = parseJobResults(getInput("JOB_RESULTS"));
     setOutput("dependencies_succeeded", String(dependenciesSucceeded));
 
@@ -182,4 +190,5 @@ module.exports = {
   detectSpotInterruption,
   listAll,
   parseJobResults,
+  validateCheckName,
 };

@@ -76,7 +76,8 @@ Set `check_name` to change the normal suffix:
 
 This publishes `merge-gate / ready` normally and `merge-gate / interrupted`
 after a Spot interruption. Adding `name:` to the caller job changes the
-`merge-gate` prefix too.
+`merge-gate` prefix too. The reserved suffixes `interrupted` and
+`Detect Spot interruption` are rejected.
 
 ## Failure behavior
 

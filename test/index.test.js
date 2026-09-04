@@ -1,11 +1,13 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
+const fs = require("node:fs");
 
 const {
   PAGE_SIZE,
   SPOT_INTERRUPTION_ANNOTATION_TITLE,
   detectSpotInterruption,
   parseJobResults,
+  validateCheckName,
 } = require("../.github/actions/detect/src/index.js");
 
 function response(body, status = 200) {
@@ -50,6 +52,19 @@ test("rejects malformed dependency results", () => {
   for (const value of ["not-json", "[]", "null", '{"test":null}', '{"test":{"result":"neutral"}}']) {
     assert.throws(() => parseJobResults(value));
   }
+});
+
+test("rejects check names reserved by the reusable workflow", () => {
+  for (const name of ["interrupted", "INTERRUPTED", "Detect Spot interruption", " detect spot interruption "]) {
+    assert.throws(() => validateCheckName(name), /check_name cannot be/);
+  }
+  assert.doesNotThrow(() => validateCheckName("pass"));
+  assert.doesNotThrow(() => validateCheckName("ready"));
+});
+
+test("passes check_name from the reusable workflow to validation", () => {
+  const workflow = fs.readFileSync(".github/workflows/merge-queue.yml", "utf8");
+  assert.match(workflow, /check_name: \$\{\{ inputs\.check_name \}\}/);
 });
 
 test("returns false for an ordinary failed job", async () => {
@@ -140,4 +155,19 @@ test("fails closed when the GitHub API fails", async () => {
     detectSpotInterruption(detectorOptions(fetchImpl)),
     /GitHub API request failed.*403 Forbidden/,
   );
+});
+
+test("preserves a GitHub Enterprise API path prefix", async () => {
+  const requestedUrls = [];
+  const fetchImpl = async (url) => {
+    requestedUrls.push(url.toString());
+    return response({ jobs: [] });
+  };
+
+  await detectSpotInterruption({
+    ...detectorOptions(fetchImpl),
+    apiUrl: "https://ghe.example/api/v3",
+  });
+
+  assert.match(requestedUrls[0], /^https:\/\/ghe\.example\/api\/v3\/repos\//);
 });
