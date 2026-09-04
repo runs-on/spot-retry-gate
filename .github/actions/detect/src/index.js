@@ -1,6 +1,7 @@
 const fs = require("node:fs");
 
 const SPOT_INTERRUPTION_ANNOTATION_TITLE = "EC2 Spot interruption";
+const MAX_RETRYABLE_RUN_ATTEMPT = 2;
 const PAGE_SIZE = 100;
 const VALID_JOB_RESULTS = new Set(["success", "failure", "cancelled", "skipped"]);
 const RESERVED_CHECK_NAMES = new Set(["detect spot interruption", "interrupted"]);
@@ -150,7 +151,7 @@ async function evaluateGate({ jobResults, runAttempt, detectInterruption }) {
     throw new Error("run_attempt must be a positive integer");
   }
 
-  if (dependenciesSucceeded || runAttempt !== "1") {
+  if (dependenciesSucceeded || Number(runAttempt) > MAX_RETRYABLE_RUN_ATTEMPT) {
     return { dependenciesSucceeded, spotInterrupted: false };
   }
 
@@ -210,6 +211,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  MAX_RETRYABLE_RUN_ATTEMPT,
   PAGE_SIZE,
   SPOT_INTERRUPTION_ANNOTATION_TITLE,
   detectSpotInterruption,

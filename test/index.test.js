@@ -3,6 +3,7 @@ const test = require("node:test");
 const fs = require("node:fs");
 
 const {
+  MAX_RETRYABLE_RUN_ATTEMPT,
   PAGE_SIZE,
   SPOT_INTERRUPTION_ANNOTATION_TITLE,
   detectSpotInterruption,
@@ -75,25 +76,27 @@ test("passes check_name from the reusable workflow to validation", () => {
 });
 
 test("skips annotation lookup when every dependency succeeded", async () => {
-  let detectionCalls = 0;
-  const result = await evaluateGate({
-    jobResults: JSON.stringify({ test: { result: "success" } }),
-    runAttempt: "1",
-    detectInterruption: async () => {
-      detectionCalls += 1;
-      throw new Error("must not query GitHub");
-    },
-  });
+  for (const runAttempt of ["1", String(MAX_RETRYABLE_RUN_ATTEMPT + 1)]) {
+    let detectionCalls = 0;
+    const result = await evaluateGate({
+      jobResults: JSON.stringify({ test: { result: "success" } }),
+      runAttempt,
+      detectInterruption: async () => {
+        detectionCalls += 1;
+        throw new Error("must not query GitHub");
+      },
+    });
 
-  assert.deepEqual(result, { dependenciesSucceeded: true, spotInterrupted: false });
-  assert.equal(detectionCalls, 0);
+    assert.deepEqual(result, { dependenciesSucceeded: true, spotInterrupted: false });
+    assert.equal(detectionCalls, 0);
+  }
 });
 
-test("does not report an interruption after the first attempt", async () => {
+test("does not report an interruption after the retry limit", async () => {
   let detectionCalls = 0;
   const result = await evaluateGate({
     jobResults: JSON.stringify({ test: { result: "failure" } }),
-    runAttempt: "2",
+    runAttempt: String(MAX_RETRYABLE_RUN_ATTEMPT + 1),
     detectInterruption: async () => {
       detectionCalls += 1;
       return true;
@@ -104,19 +107,21 @@ test("does not report an interruption after the first attempt", async () => {
   assert.equal(detectionCalls, 0);
 });
 
-test("looks for an interruption only for failed dependencies on attempt one", async () => {
-  let detectionCalls = 0;
-  const result = await evaluateGate({
-    jobResults: JSON.stringify({ test: { result: "failure" } }),
-    runAttempt: "1",
-    detectInterruption: async () => {
-      detectionCalls += 1;
-      return true;
-    },
-  });
+test("looks for an interruption on each retryable attempt", async () => {
+  for (const runAttempt of ["1", String(MAX_RETRYABLE_RUN_ATTEMPT)]) {
+    let detectionCalls = 0;
+    const result = await evaluateGate({
+      jobResults: JSON.stringify({ test: { result: "failure" } }),
+      runAttempt,
+      detectInterruption: async () => {
+        detectionCalls += 1;
+        return true;
+      },
+    });
 
-  assert.deepEqual(result, { dependenciesSucceeded: false, spotInterrupted: true });
-  assert.equal(detectionCalls, 1);
+    assert.deepEqual(result, { dependenciesSucceeded: false, spotInterrupted: true });
+    assert.equal(detectionCalls, 1);
+  }
 });
 
 test("rejects an invalid run attempt", async () => {

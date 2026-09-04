@@ -5,8 +5,8 @@ EC2 Spot interruption.
 
 RunsOn fails an interrupted job so GitHub includes it when RunsOn requests a
 rerun of failed jobs. This reusable workflow publishes a different successful
-check during that first interrupted attempt. The required check stays pending
-until the retry publishes the real aggregate result.
+check during a retryable interrupted attempt. The required check stays pending
+until a later attempt publishes the real aggregate result.
 
 This workflow supports GitHub.com. GitHub Enterprise Server does not support
 the `$/` self-repository action reference used by reusable workflows.
@@ -49,7 +49,7 @@ The gate publishes these checks:
 | Attempt | Check | Conclusion |
 | --- | --- | --- |
 | Normal completed attempt | `merge-gate / pass` | Aggregate result |
-| First attempt with an annotated Spot interruption | `merge-gate / interrupted` | Success |
+| Attempt 1 or 2 with an annotated Spot interruption | `merge-gate / interrupted` | Success |
 
 The successful `interrupted` check does not satisfy the required `pass` check.
 The merge queue waits while RunsOn reruns the failed jobs. GitHub carries
@@ -57,8 +57,8 @@ successful jobs into the new attempt without executing them again.
 
 Every job that contributes to the aggregate result must appear in `needs`. Use
 one non-matrix gate job. If every dependency succeeds, the gate publishes the
-normal check without querying the GitHub API. Attempts after the first also
-publish the normal aggregate result because RunsOn does not retry them again.
+normal check without querying the GitHub API. RunsOn makes at most two automatic
+reruns. Attempt 3 and later therefore publish the normal aggregate result.
 
 Keep the workflow running until the gate finishes: RunsOn waits for the failed
 attempt to complete before requesting the retry. Set the merge queue's status
@@ -95,7 +95,7 @@ normal check when:
 - any dependency fails, is cancelled, or is skipped;
 - `job_results` is empty or malformed; or
 - GitHub's jobs or check-annotations API cannot be read while a dependency has
-  failed on the first attempt.
+  failed on attempt 1 or 2.
 
 When interrupted and ordinary failures occur together, the interrupted attempt
 keeps the required check pending. Any ordinary failure that persists in the
