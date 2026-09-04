@@ -153,9 +153,6 @@ function annotateError(message) {
 }
 
 async function main() {
-  setOutput("spot_interrupted", "false");
-  setOutput("dependencies_succeeded", "false");
-
   try {
     const { dependenciesSucceeded } = parseJobResults(getInput("JOB_RESULTS"));
     setOutput("dependencies_succeeded", String(dependenciesSucceeded));

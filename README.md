@@ -81,11 +81,16 @@ after a Spot interruption. Adding `name:` to the caller job changes the
 ## Failure behavior
 
 The workflow recognizes the exact `EC2 Spot interruption` error annotation
-written by the RunsOn runner agent. It fails the normal check when:
+written by the RunsOn runner agent. When it finds no interruption, it fails the
+normal check when:
 
-- any dependency fails, is cancelled, or is skipped without that annotation;
+- any dependency fails, is cancelled, or is skipped;
 - `job_results` is empty or malformed; or
 - GitHub's jobs or check-annotations API cannot be read.
+
+When interrupted and ordinary failures occur together, the interrupted attempt
+keeps the required check pending. Any ordinary failure that persists in the
+retry then fails the normal check.
 
 The workflow needs only `actions: read` and `checks: read`. It does not accept
 secrets or write through the GitHub API.

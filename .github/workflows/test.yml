@@ -26,3 +26,14 @@ jobs:
     uses: ./.github/workflows/merge-queue.yml
     with:
       job_results: ${{ toJSON(needs) }}
+
+  custom-gate:
+    if: ${{ always() }}
+    needs: [unit]
+    permissions:
+      actions: read
+      checks: read
+    uses: ./.github/workflows/merge-queue.yml
+    with:
+      check_name: ready
+      job_results: ${{ toJSON(needs) }}
