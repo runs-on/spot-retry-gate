@@ -1,0 +1,64 @@
+name: RunsOn Spot retry gate
+
+on:
+  workflow_call:
+    inputs:
+      job_results:
+        description: JSON object produced by toJSON(needs)
+        required: true
+        type: string
+      check_name:
+        description: Required check name suffix for a normal completed attempt
+        required: false
+        type: string
+        default: pass
+
+permissions:
+  actions: read
+  checks: read
+
+jobs:
+  detect:
+    name: Detect Spot interruption
+    runs-on: ubuntu-latest
+    outputs:
+      dependencies_succeeded: ${{ steps.detect.outputs.dependencies_succeeded }}
+      spot_interrupted: ${{ steps.detect.outputs.spot_interrupted }}
+    steps:
+      - name: Inspect failed jobs and dependency results
+        id: detect
+        uses: $/.github/actions/detect
+        with:
+          api_url: ${{ github.api_url }}
+          github_token: ${{ github.token }}
+          check_name: ${{ inputs.check_name }}
+          job_results: ${{ inputs.job_results }}
+          repository: ${{ github.repository }}
+          run_attempt: ${{ github.run_attempt }}
+          run_id: ${{ github.run_id }}
+
+  gate:
+    name: ${{ needs.detect.outputs.spot_interrupted == 'true' && 'interrupted' || inputs.check_name || 'pass' }}
+    if: ${{ always() }}
+    needs: [detect]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report aggregate result
+        env:
+          DEPENDENCIES_SUCCEEDED: ${{ needs.detect.outputs.dependencies_succeeded }}
+          DETECTOR_RESULT: ${{ needs.detect.result }}
+          SPOT_INTERRUPTED: ${{ needs.detect.outputs.spot_interrupted }}
+        shell: bash
+        run: |
+          if [ "$DETECTOR_RESULT" != "success" ]; then
+            echo "::error::Could not determine whether a failed job was interrupted"
+            exit 1
+          fi
+          if [ "$SPOT_INTERRUPTED" = "true" ]; then
+            echo "RunsOn will retry the interrupted job after this attempt finishes."
+            exit 0
+          fi
+          if [ "$DEPENDENCIES_SUCCEEDED" != "true" ]; then
+            echo "::error::CI failed without an EC2 Spot interruption"
+            exit 1
+          fi

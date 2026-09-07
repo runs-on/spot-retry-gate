@@ -1,0 +1,36 @@
+name: RunsOn Spot retry detector
+description: Detect a RunsOn Spot interruption and validate aggregate job results
+
+inputs:
+  github_token:
+    description: GitHub token used to read workflow jobs and check annotations
+    required: true
+  repository:
+    description: Repository in owner/name form
+    required: true
+  run_id:
+    description: Workflow run ID
+    required: true
+  run_attempt:
+    description: Workflow run attempt number
+    required: true
+  job_results:
+    description: JSON object produced by toJSON(needs)
+    required: true
+  check_name:
+    description: Normal check name suffix
+    required: true
+  api_url:
+    description: GitHub API base URL
+    required: false
+    default: https://api.github.com
+
+outputs:
+  spot_interrupted:
+    description: Whether a failed job has the RunsOn Spot interruption annotation
+  dependencies_succeeded:
+    description: Whether every supplied dependency succeeded
+
+runs:
+  using: node24
+  main: src/index.js

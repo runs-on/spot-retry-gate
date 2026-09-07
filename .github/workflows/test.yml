@@ -1,0 +1,39 @@
+name: Test
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - run: node --test
+
+  merge-gate:
+    if: ${{ always() }}
+    needs: [unit]
+    permissions:
+      actions: read
+      checks: read
+    uses: ./.github/workflows/merge-queue.yml
+    with:
+      job_results: ${{ toJSON(needs) }}
+
+  custom-gate:
+    if: ${{ always() }}
+    needs: [unit]
+    permissions:
+      actions: read
+      checks: read
+    uses: ./.github/workflows/merge-queue.yml
+    with:
+      check_name: ready
+      job_results: ${{ toJSON(needs) }}
