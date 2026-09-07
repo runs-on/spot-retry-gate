@@ -112,6 +112,39 @@ fails the normal check. RunsOn may still have enough durable instance evidence
 to retry the job. The gate cannot read that evidence with GitHub-only
 permissions.
 
+## Releasing
+
+Run the **Release** workflow from `main`. Supply a stable version tag such as
+`v1.0.0` and the source branch, which defaults to `main`:
+
+```sh
+gh workflow run release.yml --ref main -f tag=v1.0.0 -f branch=main
+```
+
+The workflow resolves the source branch once and runs the Node 24 tests on that
+commit. It then creates an annotated version tag and creates or fast-forwards
+the corresponding major branch (`v1`) to that exact commit in one atomic push.
+If validation, tests, or publication fail, no partial release is published.
+
+Version tags are never overwritten by this workflow. Versions must increase
+within each major. Prereleases and existing tags are rejected. A tag named `v1`
+would conflict with branch `v1` and is also rejected.
+
+Treat major branches as release pointers. Develop on source branches, and keep
+them descended from the previous release. Divergent history requires resolving
+the source branch before releasing; the workflow never force-pushes or creates
+a merge commit. To maintain an older major, release from a maintenance branch
+that includes its previous release.
+
+Consumers can use `@v1` to receive compatible releases or `@v1.0.0` to select a
+fixed version. A full commit SHA provides the strongest pin. This workflow does
+not create GitHub Release pages or generate release notes.
+
+The workflow needs permission to create version tags and update major branches.
+Repository rules must allow those updates by `GITHUB_TOKEN`. It runs validation
+before publication because pushes made with that token do not trigger the usual
+push workflows. No personal access token is required.
+
 ## License
 
 [MIT](LICENSE)

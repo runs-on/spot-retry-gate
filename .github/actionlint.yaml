@@ -1,0 +1,6 @@
+paths:
+  .github/workflows/merge-queue.yml:
+    ignore:
+      # Remove when actionlint supports self-repository action references.
+      # https://github.com/rhysd/actionlint/issues/711
+      - '^specifying action "\$/\.github/actions/detect" in invalid format because ref is missing\.'

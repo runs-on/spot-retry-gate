@@ -1,0 +1,75 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Stable version tag (for example, v1.0.0)
+        required: true
+        type: string
+      branch:
+        description: Source branch to release
+        required: true
+        default: main
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+    steps:
+      - name: Require dispatch from main
+        env:
+          DISPATCH_REF: ${{ github.ref }}
+        run: test "$DISPATCH_REF" = refs/heads/main
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Resolve and validate release
+        id: resolve
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_BRANCH: ${{ inputs.branch }}
+        run: bash scripts/release.sh resolve
+      - name: Check out the resolved source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.resolve.outputs.sha }}
+          path: source
+          persist-credentials: false
+      - name: Test the release commit
+        working-directory: source
+        run: node --test
+
+  publish:
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - name: Publish tag and major branch atomically
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_BRANCH: ${{ inputs.branch }}
+          RELEASE_SHA: ${{ needs.validate.outputs.sha }}
+        run: bash scripts/release.sh publish
